@@ -1,0 +1,27 @@
+body {
+    text-align: center;
+    font-family: Arial;
+    background: #111;
+    color: white;
+}
+
+.container {
+    position: relative;
+    display: inline-block;
+}
+
+video, canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    border-radius: 10px;
+}
+
+canvas {
+    z-index: 10;
+}
+
+#status {
+    margin-top: 10px;
+    color: lightgreen;
+}

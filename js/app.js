@@ -40,7 +40,7 @@ async function loadModels() {
         statusText.innerText = "Loading AI model...";
 
         // Load mask classifier
-        model = await tf.loadLayersModel("model/model.json");
+        model = await tf.loadLayersModel('https://1326110.github.io/web-model/model/model.json');//tf.loadLayersModel("model/model.json");
 
         // Load face detector
         faceModel = await blazeface.load();

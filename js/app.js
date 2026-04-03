@@ -8,7 +8,7 @@ const statusText = document.getElementById("status");
 
 let model;
 let faceModel;
-// Order: 0: incorrect, 1: no mask, 2: with mask
+// Labels: 0: incorrect, 1: no mask, 2: with mask
 let labels = ["mask_incorrectly", "no_mask", "with_mask"]; 
 let frameCount = 0;
 
@@ -99,7 +99,7 @@ async function detect() {
                     const startX = Math.max(0, Math.floor(x1));
                     const startY = Math.max(0, Math.floor(y1));
                     
-                    // Calculate dimensions and force them to be whole numbers
+                    // Force dimensions to be whole numbers
                     const rawWidth = Math.floor(x2 - x1);
                     const rawHeight = Math.floor(y2 - y1);
 
@@ -114,7 +114,7 @@ async function detect() {
                     // 2. Resize to 224x224 (Model Input Size)
                     faceTensor = tf.image.resizeBilinear(faceTensor, [224, 224]);
 
-                    // 3. Normalize (-1 to 1)
+                    // 3. Normalize (-1 to 1 for MobileNetV2)
                     const offset = tf.scalar(127.5);
                     const normalized = faceTensor.sub(offset).div(offset).expandDims(0);
 
@@ -123,7 +123,7 @@ async function detect() {
                     const probabilities = prediction.dataSync();
                     const labelIndex = prediction.argMax(-1).dataSync()[0];
 
-                    // 5. Formatting UI
+                    // 5. Formatting UI Results
                     const labelText = labels[labelIndex];
                     const confidence = (probabilities[labelIndex] * 100).toFixed(1);
                     const displayText = `${labelText.replace("_", " ").toUpperCase()} ${confidence}%`;

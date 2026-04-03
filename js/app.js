@@ -1,75 +1,65 @@
-// ==============================
-// 1. GLOBALS & CONFIG
-// ==============================
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const statusText = document.getElementById("status");
 
-let maskModel;     // The custom model (Expert)
-let faceDetector;  // BlazeFace (Scout)
-
-// Indices: 0: mask_incorrectly, 1: no_mask, 2: with_mask
+let maskModel;
+let faceDetector;
 const labels = ["mask_incorrectly", "no_mask", "with_mask"];
 let isProcessing = false;
 
-// ==============================
-// 2. INITIALIZATION
-// ==============================
+// 1. Initialize System
 async function init() {
     try {
-        statusText.innerText = "Starting Camera...";
+        statusText.innerText = "Requesting Camera...";
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: "user", width: 640, height: 480 },
             audio: false
         });
         video.srcObject = stream;
 
-        // Wait for video to be ready to get dimensions
         await new Promise((resolve) => (video.onloadedmetadata = resolve));
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
 
         statusText.innerText = "Loading AI Models...";
         
-        // Load both models at the same time
+        // Parallel loading for maximum speed
         [maskModel, faceDetector] = await Promise.all([
             tf.loadLayersModel('model/model.json'),
             blazeface.load()
         ]);
 
-        // GPU Warmup: Prime the engine so the first frame isn't laggy
+        // GPU Warmup
         tf.tidy(() => maskModel.predict(tf.zeros([1, 224, 224, 3])));
 
-        statusText.innerText = "System Live";
+        statusText.innerText = "System Live - Monitoring";
         detectFrame();
     } catch (err) {
-        statusText.innerText = "Error: " + err.message;
+        statusText.innerText = "Critical Error: " + err.message;
         console.error(err);
     }
 }
 
-// ==============================
-// 3. DETECTION LOOP
-// ==============================
+// 2. Detection Loop
 async function detectFrame() {
     if (isProcessing) {
         requestAnimationFrame(detectFrame);
         return;
     }
 
-    // Always draw the background video first
+    // Draw the current camera frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     if (faceDetector && maskModel) {
         isProcessing = true;
 
-        // STEP 1: Find faces (The Scout)
+        // Stage 1: Locate Faces
         const faces = await faceDetector.estimateFaces(video, false);
 
         if (faces.length > 0) {
             for (const face of faces) {
-                // Force Integers to prevent WebGL/Fragment Shader errors
+                // Ensure whole numbers for WebGL stability
                 const x1 = Math.floor(face.topLeft[0]);
                 const y1 = Math.floor(face.topLeft[1]);
                 const x2 = Math.floor(face.bottomRight[0]);
@@ -79,62 +69,54 @@ async function detectFrame() {
                 const height = Math.min(y2 - y1, video.videoHeight - y1);
 
                 if (width > 0 && height > 0) {
-                    // STEP 2: Predict Mask (The Expert)
-                    // tf.tidy handles memory cleanup automatically
+                    // Stage 2: Predict Mask Status
                     const [prediction, probabilities] = tf.tidy(() => {
                         const tensor = tf.browser.fromPixels(video)
-                            .slice([y1, x1, 0], [height, width, 3]) // Crop face
-                            .resizeBilinear([224, 224])             // Standardize size
-                            .div(127.5).sub(1)                      // Normalize (-1 to 1)
-                            .expandDims(0);                         // Create batch
+                            .slice([y1, x1, 0], [height, width, 3])
+                            .resizeBilinear([224, 224])
+                            .div(127.5).sub(1) // Normalize [-1, 1]
+                            .expandDims(0);
                         
                         const result = maskModel.predict(tensor);
                         return [
-                            result.argMax(-1).dataSync()[0], // Index of highest probability
-                            result.dataSync()                // The raw percentage list
+                            result.argMax(-1).dataSync()[0],
+                            result.dataSync()
                         ];
                     });
 
-                    // STEP 3: Draw results to screen
                     drawUI(x1, y1, width, height, prediction, probabilities);
                 }
             }
         }
         isProcessing = false;
     }
-
-    // Keep the loop running
     requestAnimationFrame(detectFrame);
 }
 
-// ==============================
-// 4. UI RENDERING
-// ==============================
+// 3. UI Drawing Function
 function drawUI(x, y, w, h, labelIdx, probs) {
     const label = labels[labelIdx];
-    const confidence = (probs[labelIdx] * 100).toFixed(1);
+    const confidence = (probs[labelIdx] * 100).toFixed(0);
     
-    // Set color based on classification
-    let color = "#FFD700"; // Yellow (Incorrect)
+    let color = "#FFD700"; // Yellow
     if (label === "with_mask") color = "#00FF00"; // Green
     if (label === "no_mask") color = "#FF0000";   // Red
 
-    // 1. Draw the box
+    // Draw Box
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
     ctx.strokeRect(x, y, w, h);
 
-    // 2. Draw the label background
+    // Draw Tag
     ctx.fillStyle = color;
-    const text = `${label.toUpperCase()} ${confidence}%`;
+    const text = `${label.replace("_", " ").toUpperCase()} ${confidence}%`;
     const textWidth = ctx.measureText(text).width;
     ctx.fillRect(x, y - 25, textWidth + 10, 25);
 
-    // 3. Draw the text
-    ctx.fillStyle = "#000000";
-    ctx.font = "bold 16px Arial";
+    // Draw Text
+    ctx.fillStyle = "black";
+    ctx.font = "bold 16px sans-serif";
     ctx.fillText(text, x + 5, y - 7);
 }
 
-// Kick off the script
 init();

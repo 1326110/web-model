@@ -1,31 +1,29 @@
 body {
     margin: 0;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: #1a1a1a;
+    background-color: #121212;
     color: white;
+    font-family: 'Segoe UI', sans-serif;
     display: flex;
     justify-content: center;
 }
 
-.container {
+.main-container {
     text-align: center;
-    max-width: 800px;
     padding: 20px;
 }
 
 #status {
-    margin-bottom: 15px;
     color: #00ffcc;
+    margin-bottom: 10px;
     font-weight: bold;
 }
 
-.video-wrapper {
-    position: relative;
+.viewport {
+    position: relative; /* Anchor for the absolute canvas */
     display: inline-block;
-    border: 4px solid #333;
-    border-radius: 8px;
+    border: 3px solid #444;
+    border-radius: 10px;
     overflow: hidden;
-    background: black;
 }
 
 video {
@@ -36,29 +34,30 @@ video {
 }
 
 canvas {
-    position: absolute;
+    position: absolute; /* Positions the drawing layer exactly over the video */
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 10;
+    z-index: 5;
+    pointer-events: none; /* Allows interactions to pass through if needed */
 }
 
-.instructions {
-    margin-top: 20px;
+.legend {
+    margin-top: 15px;
     display: flex;
     justify-content: center;
     gap: 20px;
 }
 
-.dot {
-    height: 12px;
-    width: 12px;
-    border-radius: 50%;
+.box {
     display: inline-block;
+    width: 12px;
+    height: 12px;
     margin-right: 5px;
+    border-radius: 2px;
 }
 
-.green { background-color: #00FF00; }
-.red { background-color: #FF0000; }
-.yellow { background-color: #FFD700; }
+.green { background: #00FF00; }
+.red { background: #FF0000; }
+.yellow { background: #FFD700; }

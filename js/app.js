@@ -123,12 +123,29 @@ async function detect() {
                 const width = x2 - x1;
                 const height = y2 - y1;
 
+
+                
                 tf.tidy(() => {
-                    // 1. Crop the face from the video stream
-                    let face = tf.browser.fromPixels(video)
-                        .slice([Math.max(0, y1), Math.max(0, x1), 0], 
-                               [Math.min(video.videoHeight - y1, height), 
-                                Math.min(video.videoWidth - x1, width), 3]);
+    // 1. Force all coordinates to be Integers using Math.floor or Math.round
+    const startY = Math.max(0, Math.floor(y1));
+    const startX = Math.max(0, Math.floor(x1));
+    
+    // 2. Ensure dimensions are also whole numbers
+    const sliceH = Math.min(video.videoHeight - startY, Math.floor(height));
+    const sliceW = Math.min(video.videoWidth - startX, Math.floor(width));
+
+    // 3. Crop using the cleaned integers
+    let face = tf.browser.fromPixels(video)
+        .slice([startY, startX, 0], [sliceH, sliceW, 3]);
+
+    // Resize and normalize stay the same
+    face = tf.image.resizeBilinear(face, [224, 224]);
+    const offset = tf.scalar(127.5);
+    const normalized = face.sub(offset).div(offset).expandDims(0);
+
+    const prediction = model.predict(normalized);
+    // ... rest of your code
+});
 
                     // 2. Resize to 224x224 (Matches your MobileNetV2 training)
                     face = tf.image.resizeBilinear(face, [224, 224]);

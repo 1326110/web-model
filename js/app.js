@@ -43,11 +43,11 @@ async function loadModels() {
         await tf.ready(); 
         statusText.innerText = "Loading AI models...";
 
-        // 1. Load Mask Classifier
+        // 1. Load Mask Classifier (Ensures path is correct)
         model = await tf.loadLayersModel('model/model.json');
         console.log("Mask Model Loaded");
 
-        // 2. Load Face Detector
+        // 2. Load Face Detector (BlazeFace)
         faceModel = await blazeface.load();
         console.log("Face Detector Loaded");
 
@@ -67,7 +67,7 @@ function drawBox(x1, y1, x2, y2, text, color) {
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
     ctx.fillStyle = color;
-    ctx.font = "bold 16px Arial";
+    ctx.font = "bold 16px sans-serif";
     const textWidth = ctx.measureText(text).width;
     ctx.fillRect(x1, y1 - 22, textWidth + 10, 22);
     

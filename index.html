@@ -1,24 +1,28 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>AI Mask Detector</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Mask Detector</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
-    <style>
-        body { margin: 0; background: #121212; color: white; text-align: center; font-family: sans-serif; }
-        .wrapper { position: relative; display: inline-block; margin-top: 20px; border: 5px solid #333; }
-        video { display: block; width: 100%; max-width: 640px; height: auto; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        #status { padding: 10px; color: #00ff00; }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Mask Detector</h1>
-    <div id="status">Initializing AI...</div>
-    <div class="wrapper">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="canvas"></canvas>
+    <div class="container">
+        <h1>AI Mask Detection System</h1>
+        <div id="status">Initializing AI...</div>
+        
+        <div class="video-wrapper">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div class="instructions">
+            <p><span class="dot green"></span> Green: Mask Detected</p>
+            <p><span class="dot red"></span> Red: No Mask</p>
+            <p><span class="dot yellow"></span> Yellow: Incorrectly Worn</p>
+        </div>
     </div>
     <script src="app.js"></script>
 </body>

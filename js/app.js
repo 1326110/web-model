@@ -77,11 +77,7 @@ function drawBox(x1, y1, x2, y2, text, color) {
     ctx.fillText(text, x1 + 5, y1 - 6);
 }
 
-// ==============================
-// MAIN DETECTION LOOP
-// ==============================
 async function detect() {
-    // Draw current frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     if (frameCount % 2 === 0 && faceModel && model) {
@@ -89,54 +85,58 @@ async function detect() {
 
         if (predictions.length > 0) {
             predictions.forEach(pred => {
-                // 1. Extract raw coordinates
-                const rawX1 = pred.topLeft[0];
-                const rawY1 = pred.topLeft[1];
-                const rawX2 = pred.bottomRight[0];
-                const rawY2 = pred.bottomRight[1];
+                // 1. Get coordinates
+                const x1 = pred.topLeft[0];
+                const y1 = pred.topLeft[1];
+                const x2 = pred.bottomRight[0];
+                const y2 = pred.bottomRight[1];
 
                 tf.tidy(() => {
-                    // 2. FORCE conversion to pure whole integers
-                    // Math.trunc is used to remove any decimal possibility 
-                    const x = Math.trunc(Math.max(0, rawX1));
-                    const y = Math.trunc(Math.max(0, rawY1));
+                    // 2. STRICTURE INTEGER CONVERSION
+                    // We use Math.floor and ensure we stay within video bounds
+                    const startY = Math.max(0, Math.floor(y1));
+                    const startX = Math.max(0, Math.floor(x1));
+                    const endY = Math.min(video.videoHeight, Math.floor(y2));
+                    const endX = Math.min(video.videoWidth, Math.floor(x2));
                     
-                    // 3. Calculate width/height as whole integers
-                    let w = Math.trunc(rawX2 - rawX1);
-                    let h = Math.trunc(rawY2 - rawY1);
+                    const height = endY - startY;
+                    const width = endX - startX;
 
-                    // 4. Final safety check: ensure slice stays inside video boundaries
-                    if (x + w > video.videoWidth) w = Math.trunc(video.videoWidth - x);
-                    if (y + h > video.videoHeight) h = Math.trunc(video.videoHeight - y);
+                    // 3. CROP (The fix is here: we pass the arrays as pure integers)
+                    const begin = [startY, startX, 0];
+                    const size = [height, width, 3];
 
-                    // 5. CROP: The integer values now prevent the Shader Error
                     let faceTensor = tf.browser.fromPixels(video)
-                        .slice([y, x, 0], [h, w, 3]);
+                        .slice(begin, size);
 
-                    // 6. RESIZE & NORMALIZE
+                    // 4. RESIZE & PREPROCESS
                     faceTensor = tf.image.resizeBilinear(faceTensor, [224, 224]);
                     const offset = tf.scalar(127.5);
                     const normalized = faceTensor.sub(offset).div(offset).expandDims(0);
 
-                    // 7. PREDICT
+                    // 5. PREDICT
                     const prediction = model.predict(normalized);
                     const probabilities = prediction.dataSync();
                     const labelIndex = prediction.argMax(-1).dataSync()[0];
 
-                    // 8. UI MAPPING
+                    // 6. UI
                     const labelText = labels[labelIndex];
                     const confidence = (probabilities[labelIndex] * 100).toFixed(1);
                     const displayText = `${labelText.replace("_", " ").toUpperCase()} ${confidence}%`;
 
-                    let color = "yellow"; 
+                    let color = "#FFD700"; 
                     if (labelText === "with_mask") color = "#00FF00"; 
                     if (labelText === "no_mask") color = "#FF0000";   
 
-                    drawBox(x, y, x + w, y + h, displayText, color);
+                    drawBox(startX, startY, endX, endY, displayText, color);
                 });
             });
         }
     }
+
+    frameCount++;
+    requestAnimationFrame(detect);
+}
 
     frameCount++;
     requestAnimationFrame(detect);

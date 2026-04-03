@@ -39,7 +39,7 @@ async function setupCamera() {
 // ==============================
 // LOAD MODELS
 // ==============================
-async function loadModels() {
+/* async function loadModels() {
     try {
         await tf.setBackend("webgl");
         await tf.ready();
@@ -58,6 +58,30 @@ async function loadModels() {
     } catch (err) {
         console.error("Model Load Error:", err);
         statusText.innerText = "Error loading model! Check console.";
+    }
+}*/
+async function loadModels() {
+    try {
+        await tf.ready(); // Ensure TF.js is fully initialized
+        statusText.innerText = "Loading AI models...";
+
+        // Load mask classifier
+        model = await tf.loadLayersModel('model/model.json');
+        console.log("Mask Model Loaded");
+
+        // Load face detector
+        faceModel = await blazeface.load();
+        console.log("Face Detector Loaded");
+
+        if (!faceModel) {
+            throw new Error("BlazeFace failed to initialize");
+        }
+
+        statusText.innerText = "Models loaded. Starting camera...";
+
+    } catch (err) {
+        console.error("Critical Load Error:", err);
+        statusText.innerText = "Error: " + err.message;
     }
 }
 

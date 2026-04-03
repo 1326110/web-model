@@ -8,7 +8,7 @@ const statusText = document.getElementById("status");
 
 let model;
 let faceModel;
-// We will hardcode labels for direct use, but load labels.json as a fallback
+// Alphabetical order: mask_incorrectly (0), no_mask (1), with_mask (2)
 let labels = ["mask_incorrectly", "no_mask", "with_mask"]; 
 let frameCount = 0;
 
@@ -16,7 +16,6 @@ let frameCount = 0;
 // SETUP CAMERA
 // ==============================
 async function setupCamera() {
-    // Optimization for mobile: Use 'user' for selfie, 'environment' for back camera
     const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
             width: { ideal: 640 }, 
@@ -39,43 +38,19 @@ async function setupCamera() {
 // ==============================
 // LOAD MODELS
 // ==============================
-/* async function loadModels() {
-    try {
-        await tf.setBackend("webgl");
-        await tf.ready();
-
-        statusText.innerText = "Loading AI models...";
-
-        // 1. Load your trained MobileNetV2 Mask Classifier
-        // Path matches your project structure: model/model.json
-        model = await tf.loadLayersModel('model/model.json');
-
-        // 2. Load Face Detector (BlazeFace)
-        faceModel = await blazeface.load();
-
-        statusText.innerText = "Models loaded. Starting camera...";
-
-    } catch (err) {
-        console.error("Model Load Error:", err);
-        statusText.innerText = "Error loading model! Check console.";
-    }
-}*/
 async function loadModels() {
     try {
-        await tf.ready(); // Ensure TF.js is fully initialized
+        // Use WebGL for speed. If it fails, TF.js falls back to CPU automatically.
+        await tf.ready(); 
         statusText.innerText = "Loading AI models...";
 
-        // Load mask classifier
+        // 1. Load Mask Classifier (Path: model/model.json)
         model = await tf.loadLayersModel('model/model.json');
         console.log("Mask Model Loaded");
 
-        // Load face detector
+        // 2. Load Face Detector (BlazeFace)
         faceModel = await blazeface.load();
         console.log("Face Detector Loaded");
-
-        if (!faceModel) {
-            throw new Error("BlazeFace failed to initialize");
-        }
 
         statusText.innerText = "Models loaded. Starting camera...";
 
@@ -86,7 +61,7 @@ async function loadModels() {
 }
 
 // ==============================
-// DRAWING & FORMATTING
+// DRAWING BOXES
 // ==============================
 function drawBox(x1, y1, x2, y2, text, color) {
     ctx.strokeStyle = color;
@@ -94,85 +69,71 @@ function drawBox(x1, y1, x2, y2, text, color) {
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
     ctx.fillStyle = color;
-    ctx.font = "bold 18px sans-serif";
-    // Draw background for text
+    ctx.font = "bold 16px Arial";
     const textWidth = ctx.measureText(text).width;
-    ctx.fillRect(x1, y1 - 25, textWidth + 10, 25);
+    ctx.fillRect(x1, y1 - 22, textWidth + 10, 22);
     
     ctx.fillStyle = "black";
-    ctx.fillText(text, x1 + 5, y1 - 7);
+    ctx.fillText(text, x1 + 5, y1 - 6);
 }
 
 // ==============================
 // MAIN DETECTION LOOP
 // ==============================
 async function detect() {
-    // Draw the current video frame to the canvas
+    // Draw current frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Run detection every 2nd frame for better mobile performance
-    if (frameCount % 2 === 0) {
+    // Run AI every 2nd frame for performance boost
+    if (frameCount % 2 === 0 && faceModel && model) {
         const predictions = await faceModel.estimateFaces(video, false);
 
         if (predictions.length > 0) {
             predictions.forEach(pred => {
-                const x1 = pred.topLeft[0];
-                const y1 = pred.topLeft[1];
-                const x2 = pred.bottomRight[0];
-                const y2 = pred.bottomRight[1];
-                const width = x2 - x1;
-                const height = y2 - y1;
+                // Get raw coordinates
+                const rawX1 = pred.topLeft[0];
+                const rawY1 = pred.topLeft[1];
+                const rawX2 = pred.bottomRight[0];
+                const rawY2 = pred.bottomRight[1];
 
-
-                
                 tf.tidy(() => {
-    // 1. Force all coordinates to be Integers using Math.floor or Math.round
-    const startY = Math.max(0, Math.floor(y1));
-    const startX = Math.max(0, Math.floor(x1));
-    
-    // 2. Ensure dimensions are also whole numbers
-    const sliceH = Math.min(video.videoHeight - startY, Math.floor(height));
-    const sliceW = Math.min(video.videoWidth - startX, Math.floor(width));
+                    // --- PREVENT SHADER ERROR: FORCE INTEGERS ---
+                    const x = Math.max(0, Math.floor(rawX1));
+                    const y = Math.max(0, Math.floor(rawY1));
+                    let w = Math.floor(rawX2 - rawX1);
+                    let h = Math.floor(rawY2 - rawY1);
 
-    // 3. Crop using the cleaned integers
-    let face = tf.browser.fromPixels(video)
-        .slice([startY, startX, 0], [sliceH, sliceW, 3]);
+                    // Safety boundaries
+                    if (x + w > video.videoWidth) w = video.videoWidth - x;
+                    if (y + h > video.videoHeight) h = video.videoHeight - y;
 
-    // Resize and normalize stay the same
-    face = tf.image.resizeBilinear(face, [224, 224]);
-    const offset = tf.scalar(127.5);
-    const normalized = face.sub(offset).div(offset).expandDims(0);
+                    // 1. Crop face from video
+                    let faceTensor = tf.browser.fromPixels(video)
+                        .slice([y, x, 0], [h, w, 3]);
 
-    const prediction = model.predict(normalized);
-    // ... rest of your code
-});
+                    // 2. Resize to 224x224 (Matches MobileNetV2 training)
+                    faceTensor = tf.image.resizeBilinear(faceTensor, [224, 224]);
 
-                    // 2. Resize to 224x224 (Matches your MobileNetV2 training)
-                    face = tf.image.resizeBilinear(face, [224, 224]);
-
-                    // 3. MobileNetV2 Preprocessing: (pixel / 127.5) - 1
-                    // This is critical for accuracy!
+                    // 3. Preprocess: Scales 0..255 to -1..1
                     const offset = tf.scalar(127.5);
-                    const normalized = face.sub(offset).div(offset).expandDims(0);
+                    const normalized = faceTensor.sub(offset).div(offset).expandDims(0);
 
-                    // 4. Predict
+                    // 4. Predict Mask Status
                     const prediction = model.predict(normalized);
                     const probabilities = prediction.dataSync();
                     const labelIndex = prediction.argMax(-1).dataSync()[0];
 
-                    // 5. Map to your specific labels
+                    // 5. Result Formatting
                     const labelText = labels[labelIndex];
                     const confidence = (probabilities[labelIndex] * 100).toFixed(1);
-                    
-                    // Display formatting
                     const displayText = `${labelText.replace("_", " ").toUpperCase()} ${confidence}%`;
 
-                    // Color logic based on your 3 labels
-                    let color = "yellow"; // mask_incorrectly
+                    // Color Coding
+                    let color = "#FFD700"; // Gold/Yellow for incorrect
                     if (labelText === "with_mask") color = "#00FF00"; // Green
                     if (labelText === "no_mask") color = "#FF0000";   // Red
 
-                    drawBox(x1, y1, x2, y2, displayText, color);
+                    drawBox(x, y, x + w, y + h, displayText, color);
                 });
             });
         }
@@ -189,10 +150,10 @@ async function detect() {
     await loadModels();
     await setupCamera();
 
-    // Set canvas dimensions to match the actual video stream
+    // Match canvas to camera video size
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
-    statusText.innerText = "Scanning...";
+    statusText.innerText = "System Live";
     detect();
 })();

@@ -6,106 +6,85 @@ const statusText = document.getElementById("status");
 let maskModel;
 let faceDetector;
 const labels = ["mask_incorrectly", "no_mask", "with_mask"];
-let isProcessing = false;
 
-async function setupApp() {
+async function startApp() {
     try {
-        statusText.innerText = "Requesting Camera...";
+        // 1. Setup Camera
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: 640, height: 480 },
+            video: { width: 640, height: 480 },
             audio: false
         });
         video.srcObject = stream;
 
-        // Ensure canvas matches video size once stream starts
+        // Ensure canvas matches video pixels
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
         };
 
+        // 2. Load Models
         statusText.innerText = "Loading AI Models...";
         
-        // Path is relative to index.html
+        // This path looks inside your 'model' folder
         [maskModel, faceDetector] = await Promise.all([
             tf.loadLayersModel('model/model.json'),
             blazeface.load()
         ]);
 
-        // Warm up GPU
-        tf.tidy(() => maskModel.predict(tf.zeros([1, 224, 224, 3])));
-
-        statusText.innerText = "System Live";
-        runDetection();
+        statusText.innerText = "Scanning for Faces...";
+        detect();
     } catch (err) {
         statusText.innerText = "Error: " + err.message;
         console.error(err);
     }
 }
 
-async function runDetection() {
-    // 1. Clear previous drawings
+async function detect() {
+    // Clear the canvas every frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (faceDetector && maskModel && !isProcessing) {
-        isProcessing = true;
+    // Step 1: Find Face
+    const predictions = await faceDetector.estimateFaces(video, false);
 
-        // Detect face locations
-        const faces = await faceDetector.estimateFaces(video, false);
+    if (predictions.length > 0) {
+        for (const pred of predictions) {
+            const [x1, y1] = pred.topLeft;
+            const [x2, y2] = pred.bottomRight;
+            const width = x2 - x1;
+            const height = y2 - y1;
 
-        if (faces.length > 0) {
-            for (const face of faces) {
-                // Integer-safe coordinates for WebGL stability
-                const startX = Math.floor(face.topLeft[0]);
-                const startY = Math.floor(face.topLeft[1]);
-                const endX = Math.floor(face.bottomRight[0]);
-                const endY = Math.floor(face.bottomRight[1]);
+            // Step 2: Crop Face and Predict Mask
+            const [labelIdx, probs] = tf.tidy(() => {
+                const img = tf.browser.fromPixels(video)
+                    .slice([Math.floor(y1), Math.floor(x1), 0], [Math.floor(height), Math.floor(width), 3])
+                    .resizeBilinear([224, 224])
+                    .div(127.5).sub(1) // Normalization
+                    .expandDims(0);
                 
-                const w = endX - startX;
-                const h = endY - startY;
+                const output = maskModel.predict(img);
+                return [output.argMax(-1).dataSync()[0], output.dataSync()];
+            });
 
-                if (w > 0 && h > 0) {
-                    // AI Prediction logic
-                    const [labelIdx, probs] = tf.tidy(() => {
-                        const img = tf.browser.fromPixels(video)
-                            .slice([startY, startX, 0], [h, w, 3])
-                            .resizeBilinear([224, 224])
-                            .div(127.5).sub(1)
-                            .expandDims(0);
-                        
-                        const out = maskModel.predict(img);
-                        return [out.argMax(-1).dataSync()[0], out.dataSync()];
-                    });
+            // Step 3: Draw Result
+            const label = labels[labelIdx];
+            const confidence = (probs[labelIdx] * 100).toFixed(0);
+            
+            // Color Logic
+            let color = "#FFD700"; // Yellow
+            if (label === "with_mask") color = "#00FF00"; // Green
+            if (label === "no_mask") color = "#FF0000";   // Red
 
-                    renderBox(startX, startY, w, h, labelIdx, probs);
-                }
-            }
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 4;
+            ctx.strokeRect(x1, y1, width, height);
+
+            ctx.fillStyle = color;
+            ctx.font = "bold 16px sans-serif";
+            ctx.fillText(`${label.toUpperCase()} ${confidence}%`, x1, y1 > 20 ? y1 - 5 : 20);
         }
-        isProcessing = false;
     }
-    requestAnimationFrame(runDetection);
+
+    requestAnimationFrame(detect);
 }
 
-function renderBox(x, y, w, h, idx, probs) {
-    const label = labels[idx];
-    const conf = (probs[idx] * 100).toFixed(0);
-    
-    let color = "#FFD700"; // Yellow
-    if (label === "with_mask") color = "#00FF00"; // Green
-    if (label === "no_mask") color = "#FF0000";   // Red
-
-    // Draw Rectangle
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
-    ctx.strokeRect(x, y, w, h);
-
-    // Draw Label Label
-    ctx.fillStyle = color;
-    const txt = `${label.toUpperCase()} ${conf}%`;
-    ctx.fillRect(x, y - 25, ctx.measureText(txt).width + 10, 25);
-
-    ctx.fillStyle = "black";
-    ctx.font = "bold 16px sans-serif";
-    ctx.fillText(txt, x + 5, y - 7);
-}
-
-setupApp();
+startApp();

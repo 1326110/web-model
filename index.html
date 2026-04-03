@@ -9,19 +9,19 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>AI Mask Detection System</h1>
+    <div class="main-container">
+        <h1>Mask Detection System</h1>
         <div id="status">Initializing AI...</div>
         
-        <div class="video-wrapper">
+        <div class="viewport">
             <video id="video" autoplay playsinline muted></video>
             <canvas id="canvas"></canvas>
         </div>
         
-        <div class="instructions">
-            <p><span class="dot green"></span> Green: Mask Detected</p>
-            <p><span class="dot red"></span> Red: No Mask</p>
-            <p><span class="dot yellow"></span> Yellow: Incorrectly Worn</p>
+        <div class="legend">
+            <p><span class="box green"></span> Mask Correct</p>
+            <p><span class="box red"></span> No Mask</p>
+            <p><span class="box yellow"></span> Adjust Mask</p>
         </div>
     </div>
     <script src="js/app.js"></script>

@@ -1,159 +1,64 @@
-// ==============================
-// GLOBAL VARIABLES
-// ==============================
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const statusText = document.getElementById("status");
-
+// Hardcoded labels in alphabetical order (matches Sklearn's LabelEncoder)
+const TARGET_LABELS = ["mask_incorrectly", "no_mask", "with_mask"]; 
 let model;
-let faceModel;
-let labels = {};
-let frameCount = 0;
 
-
-// ==============================
-// SETUP CAMERA
-// ==============================
-async function setupCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 }
+async function setupWebcam() {
+    const video = document.getElementById('webcam');
+    // 'facingMode: environment' uses the back camera; 'user' uses the selfie camera
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "user" }, 
+        audio: false 
     });
-
     video.srcObject = stream;
-
     return new Promise((resolve) => {
         video.onloadedmetadata = () => resolve(video);
     });
 }
 
+async function runInference() {
+    // 1. Load the model from your folder
+    // Ensure 'tfjs_model' folder is in the same directory as this file
+    model = await tf.loadLayersModel('tfjs_model/model.json');
+    console.log("Model successfully loaded!");
 
-// ==============================
-// LOAD MODELS + LABELS
-// ==============================
-async function loadModels() {
-    try {
-        // Set backend for speed
-        await tf.setBackend("webgl");
-        await tf.ready();
-
-        statusText.innerText = "Loading AI model...";
-
-        // Load mask classifier
-        model = await tf.loadLayersModel('https://cdn.jsdelivr.net/gh/1326110/web-model@main/model/model.json');//tf.loadLayersModel("model/model.json");
-
-        // Load face detector
-        faceModel = await blazeface.load();
-
-        // Load labels
-        const res = await fetch("labels.json");
-        labels = await res.json();
-
-        statusText.innerText = "Model loaded. Starting camera...";
-
-    } catch (err) {
-        console.error(err);
-        statusText.innerText = "Error loading model!";
-    }
-}
-
-
-// ==============================
-// DRAW BOX
-// ==============================
-function drawBox(x1, y1, x2, y2, text, color) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-
-    ctx.fillStyle = color;
-    ctx.font = "16px Arial";
-    ctx.fillText(text, x1, y1 - 5);
-}
-
-
-// ==============================
-// FORMAT LABEL
-// ==============================
-function formatLabel(label) {
-    return label.replace("_", " ").toUpperCase();
-}
-
-
-// ==============================
-// MAIN DETECTION LOOP
-// ==============================
-async function detect() {
-
-    // Draw video frame
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Run face detection every 2 frames (performance boost)
-    if (frameCount % 2 === 0) {
-
-        const predictions = await faceModel.estimateFaces(video, false);
-
-        // Wrap in tf.tidy to avoid memory leaks
-        tf.tidy(() => {
-
-            predictions.forEach(pred => {
-
-                // Get bounding box
-                const x1 = Math.floor(pred.topLeft[0]);
-                const y1 = Math.floor(pred.topLeft[1]);
-                const x2 = Math.floor(pred.bottomRight[0]);
-                const y2 = Math.floor(pred.bottomRight[1]);
-
-                // Crop face from video
-                const faceTensor = tf.browser.fromPixels(video)
-                    .slice([y1, x1, 0], [y2 - y1, x2 - x1, 3])
-                    .resizeBilinear([128, 128])
-                    .div(255.0)
-                    .expandDims(0);
-
-                // Predict
-                const prediction = model.predict(faceTensor);
-                const labelIndex = prediction.argMax(-1).dataSync()[0];
-
-                // Get label from JSON
-                const labelText = labels[labelIndex];
-                const displayText = formatLabel(labelText);
-
-                // Color mapping
-                const colorMap = {
-                    "masked": "lime",
-                    "no_mask": "red",
-                    "incorrect_mask": "yellow"
-                };
-
-                const color = colorMap[labelText] || "white";
-
-                drawBox(x1, y1, x2, y2, displayText, color);
-
-            });
-
+    const video = await setupWebcam();
+    
+    // Create an infinite loop for real-time detection
+    while (true) {
+        const predictionData = tf.tidy(() => {
+            // 2. Capture the frame and resize to 224x224 (your IMG_SIZE)
+            let img = tf.browser.fromPixels(video)
+                .resizeNearestNeighbor([224, 224])
+                .toFloat();
+            
+            // 3. Apply MobileNetV2 preprocessing: (pixel - 127.5) / 127.5
+            // This scales 0-255 pixels to a range of [-1, 1]
+            const offset = tf.scalar(127.5);
+            const normalized = img.sub(offset).div(offset);
+            
+            // Add a batch dimension: [224, 224, 3] -> [1, 224, 224, 3]
+            const batched = normalized.expandDims(0);
+            
+            return model.predict(batched).dataSync();
         });
+
+        // 4. Find the index with the highest probability
+        const maxProbability = Math.max(...predictionData);
+        const predictionIndex = predictionData.indexOf(maxProbability);
+        
+        // 5. Update the UI with the label name
+        const resultText = document.getElementById('prediction');
+        const confidence = (maxProbability * 100).toFixed(1);
+        
+        resultText.innerText = `${TARGET_LABELS[predictionIndex]} (${confidence}%)`;
+
+        // Change color based on safety
+        if (predictionIndex === 2) resultText.style.color = "green"; // with_mask
+        else resultText.style.color = "red"; // no_mask or incorrect
+
+        // Give the browser a millisecond to breathe
+        await tf.nextFrame();
     }
-
-    frameCount++;
-
-    requestAnimationFrame(detect);
 }
 
-
-// ==============================
-// INIT APP
-// ==============================
-(async () => {
-
-    await loadModels();
-    await setupCamera();
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    statusText.innerText = "Running...";
-
-    detect();
-
-})();
+runInference();

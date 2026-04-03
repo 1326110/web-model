@@ -1,64 +1,157 @@
-// Hardcoded labels in alphabetical order (matches Sklearn's LabelEncoder)
-const TARGET_LABELS = ["mask_incorrectly", "no_mask", "with_mask"]; 
-let model;
+// ==============================
+// GLOBAL VARIABLES
+// ==============================
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const statusText = document.getElementById("status");
 
-async function setupWebcam() {
-    const video = document.getElementById('webcam');
-    // 'facingMode: environment' uses the back camera; 'user' uses the selfie camera
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "user" }, 
-        audio: false 
+let model;
+let faceModel;
+// We will hardcode labels for direct use, but load labels.json as a fallback
+let labels = ["mask_incorrectly", "no_mask", "with_mask"]; 
+let frameCount = 0;
+
+// ==============================
+// SETUP CAMERA
+// ==============================
+async function setupCamera() {
+    // Optimization for mobile: Use 'user' for selfie, 'environment' for back camera
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+            width: { ideal: 640 }, 
+            height: { ideal: 480 },
+            facingMode: "user" 
+        },
+        audio: false
     });
+
     video.srcObject = stream;
+
     return new Promise((resolve) => {
-        video.onloadedmetadata = () => resolve(video);
+        video.onloadedmetadata = () => {
+            video.play();
+            resolve(video);
+        };
     });
 }
 
-async function runInference() {
-    // 1. Load the model from your folder
-    // Ensure 'tfjs_model' folder is in the same directory as this file
-    model = await tf.loadLayersModel('tfjs_model/model.json');
-    console.log("Model successfully loaded!");
+// ==============================
+// LOAD MODELS
+// ==============================
+async function loadModels() {
+    try {
+        await tf.setBackend("webgl");
+        await tf.ready();
 
-    const video = await setupWebcam();
-    
-    // Create an infinite loop for real-time detection
-    while (true) {
-        const predictionData = tf.tidy(() => {
-            // 2. Capture the frame and resize to 224x224 (your IMG_SIZE)
-            let img = tf.browser.fromPixels(video)
-                .resizeNearestNeighbor([224, 224])
-                .toFloat();
-            
-            // 3. Apply MobileNetV2 preprocessing: (pixel - 127.5) / 127.5
-            // This scales 0-255 pixels to a range of [-1, 1]
-            const offset = tf.scalar(127.5);
-            const normalized = img.sub(offset).div(offset);
-            
-            // Add a batch dimension: [224, 224, 3] -> [1, 224, 224, 3]
-            const batched = normalized.expandDims(0);
-            
-            return model.predict(batched).dataSync();
-        });
+        statusText.innerText = "Loading AI models...";
 
-        // 4. Find the index with the highest probability
-        const maxProbability = Math.max(...predictionData);
-        const predictionIndex = predictionData.indexOf(maxProbability);
-        
-        // 5. Update the UI with the label name
-        const resultText = document.getElementById('prediction');
-        const confidence = (maxProbability * 100).toFixed(1);
-        
-        resultText.innerText = `${TARGET_LABELS[predictionIndex]} (${confidence}%)`;
+        // 1. Load your trained MobileNetV2 Mask Classifier
+        // Path matches your project structure: model/model.json
+        model = await tf.loadLayersModel('model/model.json');
 
-        // Change color based on safety
-        if (predictionIndex === 2) resultText.style.color = "green"; // with_mask
-        else resultText.style.color = "red"; // no_mask or incorrect
+        // 2. Load Face Detector (BlazeFace)
+        faceModel = await blazeface.load();
 
-        // Give the browser a millisecond to breathe
-        await tf.nextFrame();
+        statusText.innerText = "Models loaded. Starting camera...";
+
+    } catch (err) {
+        console.error("Model Load Error:", err);
+        statusText.innerText = "Error loading model! Check console.";
     }
 }
 
-runInference();
+// ==============================
+// DRAWING & FORMATTING
+// ==============================
+function drawBox(x1, y1, x2, y2, text, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+    ctx.fillStyle = color;
+    ctx.font = "bold 18px sans-serif";
+    // Draw background for text
+    const textWidth = ctx.measureText(text).width;
+    ctx.fillRect(x1, y1 - 25, textWidth + 10, 25);
+    
+    ctx.fillStyle = "black";
+    ctx.fillText(text, x1 + 5, y1 - 7);
+}
+
+// ==============================
+// MAIN DETECTION LOOP
+// ==============================
+async function detect() {
+    // Draw the current video frame to the canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Run detection every 2nd frame for better mobile performance
+    if (frameCount % 2 === 0) {
+        const predictions = await faceModel.estimateFaces(video, false);
+
+        if (predictions.length > 0) {
+            predictions.forEach(pred => {
+                const x1 = pred.topLeft[0];
+                const y1 = pred.topLeft[1];
+                const x2 = pred.bottomRight[0];
+                const y2 = pred.bottomRight[1];
+                const width = x2 - x1;
+                const height = y2 - y1;
+
+                tf.tidy(() => {
+                    // 1. Crop the face from the video stream
+                    let face = tf.browser.fromPixels(video)
+                        .slice([Math.max(0, y1), Math.max(0, x1), 0], 
+                               [Math.min(video.videoHeight - y1, height), 
+                                Math.min(video.videoWidth - x1, width), 3]);
+
+                    // 2. Resize to 224x224 (Matches your MobileNetV2 training)
+                    face = tf.image.resizeBilinear(face, [224, 224]);
+
+                    // 3. MobileNetV2 Preprocessing: (pixel / 127.5) - 1
+                    // This is critical for accuracy!
+                    const offset = tf.scalar(127.5);
+                    const normalized = face.sub(offset).div(offset).expandDims(0);
+
+                    // 4. Predict
+                    const prediction = model.predict(normalized);
+                    const probabilities = prediction.dataSync();
+                    const labelIndex = prediction.argMax(-1).dataSync()[0];
+
+                    // 5. Map to your specific labels
+                    const labelText = labels[labelIndex];
+                    const confidence = (probabilities[labelIndex] * 100).toFixed(1);
+                    
+                    // Display formatting
+                    const displayText = `${labelText.replace("_", " ").toUpperCase()} ${confidence}%`;
+
+                    // Color logic based on your 3 labels
+                    let color = "yellow"; // mask_incorrectly
+                    if (labelText === "with_mask") color = "#00FF00"; // Green
+                    if (labelText === "no_mask") color = "#FF0000";   // Red
+
+                    drawBox(x1, y1, x2, y2, displayText, color);
+                });
+            });
+        }
+    }
+
+    frameCount++;
+    requestAnimationFrame(detect);
+}
+
+// ==============================
+// INIT APP
+// ==============================
+(async () => {
+    await loadModels();
+    await setupCamera();
+
+    // Set canvas dimensions to match the actual video stream
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    statusText.innerText = "Scanning...";
+    detect();
+})();

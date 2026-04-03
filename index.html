@@ -1,25 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Mask Detector</title>
-    <link rel="stylesheet" href="style.css">
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
+    <style>
+        body { margin: 0; background: #121212; color: white; text-align: center; font-family: sans-serif; }
+        .wrapper { position: relative; display: inline-block; margin-top: 20px; border: 5px solid #333; }
+        video { display: block; width: 100%; max-width: 640px; height: auto; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+        #status { padding: 10px; color: #00ff00; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Mask Detection AI</h1>
-        <p id="status">Initializing AI...</p>
-        
-        <div class="video-wrapper">
-            <video id="video" autoplay playsinline muted></video>
-            <canvas id="canvas"></canvas>
-        </div>
+    <h1>Mask Detector</h1>
+    <div id="status">Initializing AI...</div>
+    <div class="wrapper">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
     </div>
-
-    <script src="js/app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

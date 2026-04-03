@@ -84,60 +84,63 @@ async function detect() {
     // Draw current frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Run AI every 2nd frame for performance boost
     if (frameCount % 2 === 0 && faceModel && model) {
         const predictions = await faceModel.estimateFaces(video, false);
 
         if (predictions.length > 0) {
             predictions.forEach(pred => {
-                // Get raw coordinates
+                // 1. Extract raw coordinates
                 const rawX1 = pred.topLeft[0];
                 const rawY1 = pred.topLeft[1];
                 const rawX2 = pred.bottomRight[0];
                 const rawY2 = pred.bottomRight[1];
 
                 tf.tidy(() => {
-                    // --- PREVENT SHADER ERROR: FORCE INTEGERS ---
-                    const x = Math.max(0, Math.floor(rawX1));
-                    const y = Math.max(0, Math.floor(rawY1));
-                    let w = Math.floor(rawX2 - rawX1);
-                    let h = Math.floor(rawY2 - rawY1);
+                    // 2. FORCE conversion to pure whole integers
+                    // Math.trunc is used to remove any decimal possibility 
+                    const x = Math.trunc(Math.max(0, rawX1));
+                    const y = Math.trunc(Math.max(0, rawY1));
+                    
+                    // 3. Calculate width/height as whole integers
+                    let w = Math.trunc(rawX2 - rawX1);
+                    let h = Math.trunc(rawY2 - rawY1);
 
-                    // Safety boundaries
-                    if (x + w > video.videoWidth) w = video.videoWidth - x;
-                    if (y + h > video.videoHeight) h = video.videoHeight - y;
+                    // 4. Final safety check: ensure slice stays inside video boundaries
+                    if (x + w > video.videoWidth) w = Math.trunc(video.videoWidth - x);
+                    if (y + h > video.videoHeight) h = Math.trunc(video.videoHeight - y);
 
-                    // 1. Crop face from video
+                    // 5. CROP: The integer values now prevent the Shader Error
                     let faceTensor = tf.browser.fromPixels(video)
                         .slice([y, x, 0], [h, w, 3]);
 
-                    // 2. Resize to 224x224 (Matches MobileNetV2 training)
+                    // 6. RESIZE & NORMALIZE
                     faceTensor = tf.image.resizeBilinear(faceTensor, [224, 224]);
-
-                    // 3. Preprocess: Scales 0..255 to -1..1
                     const offset = tf.scalar(127.5);
                     const normalized = faceTensor.sub(offset).div(offset).expandDims(0);
 
-                    // 4. Predict Mask Status
+                    // 7. PREDICT
                     const prediction = model.predict(normalized);
                     const probabilities = prediction.dataSync();
                     const labelIndex = prediction.argMax(-1).dataSync()[0];
 
-                    // 5. Result Formatting
+                    // 8. UI MAPPING
                     const labelText = labels[labelIndex];
                     const confidence = (probabilities[labelIndex] * 100).toFixed(1);
                     const displayText = `${labelText.replace("_", " ").toUpperCase()} ${confidence}%`;
 
-                    // Color Coding
-                    let color = "#FFD700"; // Gold/Yellow for incorrect
-                    if (labelText === "with_mask") color = "#00FF00"; // Green
-                    if (labelText === "no_mask") color = "#FF0000";   // Red
+                    let color = "yellow"; 
+                    if (labelText === "with_mask") color = "#00FF00"; 
+                    if (labelText === "no_mask") color = "#FF0000";   
 
                     drawBox(x, y, x + w, y + h, displayText, color);
                 });
             });
         }
     }
+
+    frameCount++;
+    requestAnimationFrame(detect);
+}
 
     frameCount++;
     requestAnimationFrame(detect);
